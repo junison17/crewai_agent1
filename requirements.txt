@@ -3,3 +3,4 @@ langchain
 openai
 duckduckgo-search
 google-search-results
+pysqlite3-binary
