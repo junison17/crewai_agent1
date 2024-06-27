@@ -5,6 +5,7 @@ from langchain.tools import DuckDuckGoSearchRun
 from langchain_community.utilities import SerpAPIWrapper
 from langchain_community.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
+from langchain.memory import ConversationBufferMemory
 import os
 
 # Streamlit 시크릿에서 API 키를 가져옵니다.
@@ -24,6 +25,10 @@ tools = [
 # GPT-4와 GPT-3.5-turbo 모델을 설정합니다.
 gpt4_model = ChatOpenAI(model_name="gpt-4")
 gpt3_5_turbo_model = ChatOpenAI(model_name="gpt-3.5-turbo")
+
+# 메모리 초기화
+if 'memory' not in st.session_state:
+    st.session_state.memory = ConversationBufferMemory(return_messages=True)
 
 # 세션 상태 초기화
 if 'messages' not in st.session_state:
@@ -89,33 +94,15 @@ if st.button("Crew 실행"):
     )
     
     with st.spinner("Crew가 작업 중입니다..."):
-        conversation = []
-        
-        def process_output(output):
-            translated_output = gpt4_model.invoke([
-                SystemMessage(content="You are a translator. Translate the following text to Korean:"),
-                HumanMessage(content=output)
-            ]).content
-            conversation.append(translated_output)
-            chat_container.text_area("대화 내용", value="\n\n".join(conversation), height=400)
-        
-        def custom_print(*args, **kwargs):
-            end = kwargs.get('end', '\n')
-            output = ' '.join(str(arg) for arg in args) + end
-            process_output(output)
-        
-        import builtins
-        original_print = builtins.print
-        builtins.print = custom_print
-        
-        try:
-            result = crew.kickoff()
-        finally:
-            builtins.print = original_print
-        
-        process_output(result)
+        result = crew.kickoff()
+        translated_result = gpt4_model.invoke([
+            SystemMessage(content="You are a translator. Translate the following text to Korean:"),
+            HumanMessage(content=result)
+        ]).content
+        st.session_state.memory.chat_memory.add_ai_message(translated_result)
+        st.session_state.messages.append(f"AI: {translated_result}")
     
-    st.session_state.messages.extend(conversation)
+    chat_container.text_area("대화 내용", value="\n\n".join(st.session_state.messages), height=400)
 
 # 대화 기록 표시
 st.header("전체 대화 기록")
@@ -126,14 +113,16 @@ for message in st.session_state.messages:
 user_input = st.chat_input("메시지를 입력하세요")
 if user_input and not st.session_state.conversation_ended:
     st.session_state.messages.append(f"사용자: {user_input}")
+    st.session_state.memory.chat_memory.add_user_message(user_input)
     
     response = gpt4_model.invoke([
         SystemMessage(content="You are a helpful AI assistant. Please respond in Korean."),
         HumanMessage(content=user_input)
-    ])
+    ] + st.session_state.memory.chat_memory.messages)
     
     ai_response = response.content
     st.session_state.messages.append(f"AI: {ai_response}")
+    st.session_state.memory.chat_memory.add_ai_message(ai_response)
     
     chat_container.text_area("대화 내용", value="\n\n".join(st.session_state.messages), height=400)
 
